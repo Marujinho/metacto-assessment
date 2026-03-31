@@ -1,0 +1,75 @@
+---
+description: Django backend conventions and authentication setup for the Feature Voting System
+alwaysApply: true
+---
+
+# Backend (Django) Rules
+
+## Project Initialisation
+
+- Django project lives in `/backend`
+- Use `mysqlclient` (or `PyMySQL`) to connect to the MySQL service
+- Database config reads from environment variables (`MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_HOST`, `MYSQL_PORT`)
+
+## Key Packages
+
+| Package | Purpose |
+|---------|---------|
+| `djangorestframework` | REST API toolkit |
+| `django-cors-headers` | CORS handling for the React SPA |
+| `gunicorn` | Production WSGI server |
+| `mysqlclient` | MySQL database adapter |
+
+## Authentication — Session-Based (NO JWT)
+
+- Use Django's built-in `SessionAuthentication` from DRF
+- **Do NOT install or use JWT libraries**
+- DRF default authentication classes in `settings.py`:
+
+```python
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+}
+```
+
+### Required Auth Endpoints
+
+#### `GET /api/csrf/`
+- Calls `django.middleware.csrf.get_token(request)` to ensure the `csrftoken` cookie is set
+- Returns a simple JSON response (e.g. `{"detail": "CSRF cookie set"}`)
+- No authentication required
+
+#### `POST /api/login/`
+- Accepts `username` and `password` in the request body
+- Uses `django.contrib.auth.authenticate()` + `django.contrib.auth.login()` to create a session
+- Returns user info on success, 400 on bad credentials
+- No authentication required (exempt from CSRF via `@csrf_exempt` or `@ensure_csrf_cookie`)
+
+#### `POST /api/logout/`
+- Uses `django.contrib.auth.logout()`
+- Clears the session
+
+#### `GET /api/me/`
+- Returns the currently authenticated user's info
+- 403 if not authenticated
+
+## CORS & CSRF Configuration (settings.py)
+
+```python
+CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")  # from .env
+CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")  # from .env
+
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+```
+
+## API Design Conventions
+
+- All API routes prefixed with `/api/`
+- Use DRF `ModelSerializer` and `ViewSet` / `APIView`
+- Return consistent JSON error shapes: `{"detail": "..."}`
+- Paginate list endpoints by default

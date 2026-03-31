@@ -1,0 +1,67 @@
+---
+description: Docker and monorepo infrastructure standards for the Feature Voting System
+alwaysApply: true
+---
+
+# Infrastructure Rules
+
+## Monorepo Layout
+
+```
+/
+├── backend/          # Django project
+├── frontend/         # React + Vite project
+├── docker-compose.yml
+├── .env.example      # Template — NEVER commit real .env
+└── .gitignore
+```
+
+## Docker Compose Services
+
+### db (MySQL 8)
+
+- Image: `mysql:8`
+- Credentials sourced from `.env` via `environment`
+- Volume for data persistence (`db_data`)
+- Healthcheck using `mysqladmin ping`
+
+### backend (Django)
+
+- Built from `backend/Dockerfile`
+- `depends_on: db` with `condition: service_healthy`
+- Expose port 8000
+- Run with **gunicorn** bound to `0.0.0.0:8000` (never `manage.py runserver` in the compose default)
+- Pass DB credentials and `DJANGO_SECRET_KEY` from `.env`
+
+### frontend (React/Vite)
+
+- Built from `frontend/Dockerfile`
+- Expose port 3000
+- Multi-stage build: stage 1 installs deps + builds, stage 2 serves with **nginx**
+- Proxy `/api` requests to the backend service
+
+## Dockerfiles
+
+- Use multi-stage builds where beneficial (especially frontend)
+- Pin base image tags (e.g. `python:3.12-slim`, `node:20-alpine`)
+- Copy dependency files first, install, then copy source (layer caching)
+- Backend production entrypoint: `gunicorn` with appropriate workers
+- Frontend production: nginx serving static build artifacts
+
+## Environment Variables (.env.example)
+
+Required keys:
+
+```
+MYSQL_ROOT_PASSWORD=
+MYSQL_DATABASE=
+MYSQL_USER=
+MYSQL_PASSWORD=
+DJANGO_SECRET_KEY=
+DJANGO_DEBUG=0
+ALLOWED_HOSTS=
+CORS_ALLOWED_ORIGINS=http://localhost:3000
+CSRF_TRUSTED_ORIGINS=http://localhost:3000
+```
+
+**Never commit `.env`** — only `.env.example` with empty/placeholder values.

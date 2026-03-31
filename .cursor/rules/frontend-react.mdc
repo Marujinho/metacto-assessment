@@ -1,0 +1,207 @@
+---
+description: React frontend conventions, CSRF handling, and auth flow for the Feature Voting System
+alwaysApply: true
+---
+
+# Frontend (React) Rules
+
+## Project Setup
+
+- Located in `/frontend`, scaffolded with **Vite + React + TypeScript**
+- Strict TypeScript (`strict: true` in `tsconfig.json`)
+
+## Core Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `tailwindcss` | Utility-first CSS |
+| `axios` | HTTP client with credential/cookie support |
+| `@tanstack/react-query` | Server-state management, caching, refetching |
+| `react-router-dom` | Client-side routing |
+| `lucide-react` | Icon library |
+| `react-hook-form` | Form state management and validation |
+| `react-hot-toast` | Lightweight toast notifications |
+
+## Axios Instance (`src/api.ts`)
+
+```typescript
+import axios from "axios";
+
+const api = axios.create({
+  baseURL: "/api",
+  withCredentials: true, // sends session cookie to Django
+});
+
+function getCookie(name: string): string | null {
+  const match = document.cookie.match(
+    new RegExp("(^| )" + name + "=([^;]+)")
+  );
+  return match ? decodeURIComponent(match[2]) : null;
+}
+
+api.interceptors.request.use((config) => {
+  if (["post", "put", "patch", "delete"].includes(config.method ?? "")) {
+    const token = getCookie("csrftoken");
+    if (token) {
+      config.headers["X-CSRFToken"] = token;
+    }
+  }
+  return config;
+});
+
+export default api;
+```
+
+### Key Points
+
+- **`withCredentials: true`** is mandatory so the browser sends the `sessionid` cookie
+- The request interceptor reads Django's `csrftoken` cookie and sets the `X-CSRFToken` header on all mutating requests
+- All API calls throughout the app must use this `api` instance — never bare `axios` or `fetch`
+
+## React Query (`QueryClient`)
+
+- Create a single `QueryClient` in `src/main.tsx` or a dedicated `src/queryClient.ts`
+- Wrap the app in `<QueryClientProvider>`
+- Sensible defaults: `staleTime: 30_000`, `retry: 1`
+
+## Routing
+
+- Use `react-router-dom` with a `<BrowserRouter>`
+- Protected routes redirect to `/login` if not authenticated
+- Public routes: `/login`, `/register`
+- App routes: `/` (feature list), `/features/:id` (detail)
+
+## Authentication Flow
+
+1. On app mount, call `GET /api/csrf/` to ensure the CSRF cookie is set
+2. Call `GET /api/me/` to check for an existing session
+3. **Login page** sends `POST /api/login/` with `{ username, password }`
+4. On success the session cookie is set automatically by the browser — no token storage needed
+5. Subsequent requests are authenticated via the session cookie
+6. **Logout** calls `POST /api/logout/` and clears the React Query cache
+
+## Styling Conventions
+
+- Use Tailwind utility classes; avoid custom CSS unless truly necessary
+- Responsive-first: mobile layout is the default, use `sm:`/`md:`/`lg:` breakpoints to scale up
+- Use `lucide-react` for all icons — do not mix icon libraries
+
+## Component Conventions
+
+- One component per file, named export matching the filename
+- Keep components small; extract hooks into `src/hooks/`
+- API query/mutation hooks live in `src/hooks/` (e.g. `useFeatures.ts`, `useVote.ts`)
+- Types/interfaces in `src/types/` or colocated when only used by one component
+
+## Layout
+
+- Clean, accessible layout with a top navigation bar and centered content area
+- Max-width container (`max-w-3xl` or `max-w-4xl`) for readability
+- Responsive: single-column on mobile, wider on `md:`+
+- Use semantic HTML (`<main>`, `<nav>`, `<header>`, `<section>`)
+- All interactive elements must be keyboard-accessible
+
+## Feature List (`FeatureList` + `FeatureCard`)
+
+### `FeatureList`
+
+- Fetches paginated features via `useFeatures()` hook using `useQuery`
+- Query key: `["features", { page, sort }]`
+- Supports sorting (e.g. most votes, newest)
+- Shows **skeleton loaders** during loading state — not a spinner
+- Shows an empty state message when no features exist
+
+### `FeatureCard`
+
+- Displays: title, description (truncated), vote count, author, time ago
+- Upvote button with the current count, visually distinct when user has already voted
+- Clicking the card navigates to the detail view
+
+### Skeleton Loaders
+
+- Build a `FeatureCardSkeleton` component with `animate-pulse` Tailwind classes
+- Render 4–6 skeletons during the loading state to match the real card layout
+- Never show a blank page or a bare spinner
+
+## Upvoting — Optimistic Updates
+
+Use React Query `useMutation` with optimistic cache updates:
+
+```typescript
+const useVote = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (featureId: number) => api.post(`/features/${featureId}/vote/`),
+
+    onMutate: async (featureId) => {
+      await queryClient.cancelQueries({ queryKey: ["features"] });
+      const previous = queryClient.getQueryData(["features"]);
+
+      // Optimistically update the cache
+      queryClient.setQueryData(["features"], (old) => /* update vote count */);
+
+      return { previous };
+    },
+
+    onError: (_err, _featureId, context) => {
+      // Rollback on failure
+      queryClient.setQueryData(["features"], context?.previous);
+      toast.error("Vote failed. Please try again.");
+    },
+
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["features"] });
+    },
+  });
+};
+```
+
+### Key Rules
+
+- **Instant feedback**: UI reflects the vote immediately, before the server responds
+- **Rollback on error**: restore the previous cache snapshot and show a toast
+- **Reconcile on settle**: always `invalidateQueries` after mutation to sync with server truth
+- Disable the vote button while the mutation is in-flight to prevent double-taps
+
+## Feature Submission Form (`FeatureForm`)
+
+### Form Library: `react-hook-form`
+
+- Use `useForm` with `mode: "onBlur"` for field-level validation on blur
+- Register all fields with validation rules
+
+### Validation Rules
+
+| Field | Rules |
+|-------|-------|
+| `title` | Required, 5–120 characters |
+| `description` | Required, 20–2000 characters |
+
+### UX Requirements
+
+- Show inline error messages below each field (red text, accessible `aria-invalid`)
+- Disable the submit button while submitting (`isSubmitting` from react-hook-form)
+- On success: close/reset the form, show a success toast, invalidate the features query
+- On error: show a toast with the server error message
+
+### Form Pattern
+
+```typescript
+const { register, handleSubmit, formState: { errors, isSubmitting }, reset } = useForm<FeatureFormData>({
+  mode: "onBlur",
+});
+
+const onSubmit = async (data: FeatureFormData) => {
+  await createFeature.mutateAsync(data);
+  reset();
+  toast.success("Feature request submitted!");
+};
+```
+
+## Toast Notifications
+
+- Use `react-hot-toast` via a `<Toaster />` in the app root
+- Success toasts for: feature submitted, vote recorded
+- Error toasts for: vote failed (rollback), form submission failed, network errors
+- Keep toast messages short and actionable

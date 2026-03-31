@@ -1,0 +1,31 @@
+---
+description: Feature Voting System assignment context and requirements
+alwaysApply: true
+---
+
+# Feature Voting System — Assignment
+
+## Overview
+
+We are building a **Feature Voting System** that allows users to submit, discover, and prioritize product feature requests. The system must be accessible across both web and mobile interfaces and demonstrate thoughtful system design, scalability, and user experience.
+
+## Core Requirements
+
+Users must be able to:
+
+1. **Submit** a new feature request with a title and description
+2. **View** a list of existing feature requests
+3. **Upvote** feature requests submitted by other users
+4. **See vote counts and ranking** of feature requests based on popularity
+
+## Design Principles
+
+- **Production-ready mindset** — treat this as a real product, not a toy demo
+- **Scalability** — architecture should handle growth in users and data
+- **Cross-platform** — web and mobile interfaces sharing the same backend
+- **Great UX** — polished, intuitive, and responsive UI
+- **Open-ended** — extend beyond the basics with features and technical considerations that make the system robust (e.g. auth, pagination, search, categories, moderation, real-time updates)
+
+## Key Decisions to Document
+
+When making architectural or technology choices, briefly explain the reasoning so the decision trail is clear for reviewers.
